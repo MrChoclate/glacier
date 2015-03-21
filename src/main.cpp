@@ -1,12 +1,18 @@
 #include <iostream>
 #include "image_png.h"
+#include "csv.h"
 
+using namespace std;
 
 int main(int argc, char const *argv[]) {
 
-    ImagePNG img;
-    img.load("img/2009072712_cam01.png");
-    img.save("img/01.png");
+    vector<Point> csv = readCSV("csv/Points-Controle_cam1.csv");
+    cout << csv.size();
+
+    for (int i = 0; i < csv.size(); ++i)
+    {
+        cout << csv[i].x << " " << csv[i].y << " " << csv[i].x_utm << " " << csv[i].y_utm << endl;
+    }
 
     return 0;
 }
