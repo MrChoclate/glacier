@@ -155,5 +155,6 @@ sympy-plots-for-*.tex/
 *.out
 *.app
 
-# gedit files
+# Editors file
 *~
+*.sublime-*
