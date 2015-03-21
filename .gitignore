@@ -158,6 +158,7 @@ sympy-plots-for-*.tex/
 # Editors file
 *~
 *.sublime-*
+.~lock.*
 
 # Binary
 bin/*
