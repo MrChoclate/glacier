@@ -1,6 +1,7 @@
 #include <iostream>
 #include "image_png.h"
 #include "csv.h"
+#include "types.h"
 
 using namespace std;
 
