@@ -3,14 +3,9 @@
 
 #include <vector>
 #include <string>
+#include "types.h"
 
 using namespace std;
-
-struct Point {
-    double x, y, x_utm, y_utm;
-};
-
-typedef struct Point Point;
 
 /* Returns a the points of the csv file */
 vector<Point> readCSV(const string &filename);

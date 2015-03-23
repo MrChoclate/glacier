@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include "csv.h"
+#include "types.h"
 
 using namespace std;
 
