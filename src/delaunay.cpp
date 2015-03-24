@@ -38,6 +38,8 @@ void DelaunayTriangles::insert(const Point &a, const Point &b) {
 }
 
 void DelaunayTriangles::del(const Point &a, const Point &b) {
+    this->adjancyList[a].remove(b);
+    this->adjancyList[b].remove(a);
 }
 
 
