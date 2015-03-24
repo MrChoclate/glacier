@@ -51,9 +51,11 @@ bool isLeftOf(const Point &z, const Segment &seg) {
 }
 
 Point& leftEnd(const Segment &seg) {
+    return (seg.a.x < seg.b.x) ? a : b;
 }
 
 Point& rightEnd(const Segment &seg) {
+    return (seg.a.x < seg.b.x) ? b : a;
 }
 
 Point& hullLower(const DelaunayTriangles &vl, const DelaunayTriangles &vr) {
