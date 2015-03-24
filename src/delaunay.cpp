@@ -27,9 +27,11 @@ Point& DelaunayTriangles::first(const Point &v) {
 }
 
 Point& DelaunayTriangles::getRightMost() {
+    return this->rightMost;
 }
 
 Point& DelaunayTriangles::getLeftMost() {
+    return this->leftMost;
 }
 
 void DelaunayTriangles::insert(const Point &a, const Point &b) {
