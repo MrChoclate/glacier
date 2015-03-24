@@ -17,7 +17,7 @@ public:
     void del(const Point &a, const Point &b);
 
 private:
-    map<Point, list<Point> > ajdancyList;
+    map<Point, list<Point> > adjancyList;
     Point &rightMost;
     Point &leftMost;
 };
