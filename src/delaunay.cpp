@@ -80,9 +80,19 @@ bool qtest(const Point &h, const Point &i, const Point &j, const Point &k) {
 }
 
 bool isRightOf(const Point &z, const Segment &seg) {
+    double x1 = z.x - seg.a.x;
+    double x2 = seg.b.x - seg.a.x;
+
+    double y1 = z.y - seg.a.y;
+    double y2 = seg.b.y - seg.a.y;
+
+    double determinant = x1 * y2 - x2 * y1;
+
+    return determinant > 0;
 }
 
 bool isLeftOf(const Point &z, const Segment &seg) {
+    return !isRightOf(z, seg);
 }
 
 Point leftEnd(const Segment &seg) {
