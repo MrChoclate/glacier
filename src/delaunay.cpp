@@ -12,26 +12,28 @@ using namespace std;
 DelaunayTriangles::DelaunayTriangles(vector<Point> v) {
 }
 
-Point& DelaunayTriangles::succ(const Point &v, const Point &w) {
-    auto list = this->adjancyList[v];
+Point DelaunayTriangles::succ(const Point &v, const Point &w) const {
+    auto list = this->adjancyList.at(v);
     auto it = find(list.begin(), list.end(), w);
     return (it != list.end()) ? *(it++) : *list.begin();
 }
 
-Point& DelaunayTriangles::pred(const Point &v, const Point &w) {
-    auto list = this->adjancyList[v];
+Point DelaunayTriangles::pred(const Point &v, const Point &w) const {
+    auto list = this->adjancyList.at(v);
     auto it = find(list.begin(), list.end(), w);
     return (it != list.begin()) ? *(it--) : *list.end();
 }
 
-Point& DelaunayTriangles::first(const Point &v) {
+Point DelaunayTriangles::first(const Point &v) const {
+    // FIXME, This is incorrect
+    return this->adjancyList.at(v).front();
 }
 
-Point& DelaunayTriangles::getRightMost() {
+Point DelaunayTriangles::getRightMost() const {
     return this->rightMost;
 }
 
-Point& DelaunayTriangles::getLeftMost() {
+Point DelaunayTriangles::getLeftMost() const {
     return this->leftMost;
 }
 
@@ -83,12 +85,12 @@ bool isRightOf(const Point &z, const Segment &seg) {
 bool isLeftOf(const Point &z, const Segment &seg) {
 }
 
-Point& leftEnd(const Segment &seg) {
-    return (seg.a.x < seg.b.x) ? a : b;
+Point leftEnd(const Segment &seg) {
+    return (seg.a.x < seg.b.x) ? seg.a : seg.b;
 }
 
-Point& rightEnd(const Segment &seg) {
-    return (seg.a.x < seg.b.x) ? b : a;
+Point rightEnd(const Segment &seg) {
+    return (seg.a.x < seg.b.x) ? seg.b : seg.a;
 }
 
 Point& hullLower(const DelaunayTriangles &vl, const DelaunayTriangles &vr) {
