@@ -106,9 +106,48 @@ Point rightEnd(const Segment &seg) {
     return (seg.a.x < seg.b.x) ? seg.b : seg.a;
 }
 
-Point& hullLower(const DelaunayTriangles &vl, const DelaunayTriangles &vr) {
+Segment hullLower(const DelaunayTriangles &vl, const DelaunayTriangles &vr) {
+    Point x = vl.getRightMost();
+    Point y = vr.getLeftMost();
+    Point z = vr.first(y);
+    Point z_ = vl.first(x);
+    Point z__ = vl.pred(x, z_);
+
+    while(1) {
+        if(isRightOf(z, Segment{x, y})) {
+            z = vr.succ(z, y);
+            y = z;
+        } else {
+            Segment l_ = {x, y};
+            if(isRightOf(z, l_)) {
+                z__ = vl.pred(z__, x);
+                x = z__;
+            } else {
+                return Segment{x, y};
+            }
+        }
+    }
 }
 
-Point& hullUpper(const DelaunayTriangles &vl, const DelaunayTriangles &vr) {
+Segment hullUpper(const DelaunayTriangles &vl, const DelaunayTriangles &vr) {
+    Point x = vl.getRightMost();
+    Point y = vr.getLeftMost();
+    Point z = vr.pred(y, vr.first(y));
+    Point z__ = vl.first(x);
+
+    while(1) {
+        if(isLeftOf(z, Segment{x, y})) {
+            z = vr.pred(z, y);
+            y = z;
+        } else {
+            Segment l_ = {x, y};
+            if(isLeftOf(z, l_)) {
+                z__ = vl.succ(z__, x);
+                x = z__;
+            } else {
+                return Segment{x, y};
+            }
+        }
+    }
 }
 
