@@ -77,6 +77,9 @@ void DelaunayTriangles::del(const Point &a, const Point &b) {
 
 
 bool qtest(const Point &h, const Point &i, const Point &j, const Point &k) {
+    bool c1 = isRightOf(k, Segment{h, i}) && isRightOf(k, Segment{i, j}) && isRightOf(k, Segment{j, h});
+    bool c2 = isLeftOf(k, Segment{h, i}) && isLeftOf(k, Segment{i, j}) && isLeftOf(k, Segment{j, h});
+    return c1 || c2;
 }
 
 bool isRightOf(const Point &z, const Segment &seg) {
