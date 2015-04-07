@@ -25,8 +25,10 @@ Point DelaunayTriangles::pred(const Point &v, const Point &w) const {
 }
 
 Point DelaunayTriangles::first(const Point &v) const {
-    // FIXME, This is incorrect
-    return this->adjancyList.at(v).front();
+    Point begin = this->adjancyList.at(v).front();
+    Point end = this->adjancyList.at(v).back();
+
+    return (isRightOf(v, Segment{end, begin})) ? begin : end;
 }
 
 Point DelaunayTriangles::getRightMost() const {
