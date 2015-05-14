@@ -15,11 +15,12 @@ public:
     Point getLeftMost() const;
     void insert(const Point &a, const Point &b);
     void del(const Point &a, const Point &b);
+    map<Point, list<Point>* > getAdjancyList() const;
 
 private:
-    map<Point, list<Point> > adjancyList;
-    Point &rightMost;
-    Point &leftMost;
+    map<Point, list<Point>* > adjancyList;
+    Point rightMost;
+    Point leftMost;
 };
 
 bool qtest(const Point &h, const Point &i, const Point &j, const Point &k);
@@ -29,3 +30,4 @@ Point leftEnd(const Segment &seg);
 Point rightEnd(const Segment &seg);
 Segment hullLower(const DelaunayTriangles &vl, const DelaunayTriangles &vr);
 Segment hullUpper(const DelaunayTriangles &vl, const DelaunayTriangles &vr);
+map<Point, list<Point>* > merge(const map<Point, list<Point>* > &a, const map<Point, list<Point>* > &b);

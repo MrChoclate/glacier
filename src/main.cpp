@@ -1,19 +1,19 @@
 #include <iostream>
+#include <algorithm>
 #include "image_png.h"
 #include "csv.h"
 #include "types.h"
+#include "delaunay.h"
 
 using namespace std;
 
 int main(int argc, char const *argv[]) {
 
-    vector<Point> csv = readCSV("csv/Points-Controle_cam1.csv");
-    cout << csv.size();
+    //vector<Point> csv = readCSV("csv/Points-Controle_cam1.csv");
+    vector<Point> csv = {Point{1, 2}, Point{-1, 1}, Point{0, 0}, Point{1, 0}};
+    sort(csv.begin(), csv.end());
 
-    for (unsigned int i = 0; i < csv.size(); ++i)
-    {
-        cout << csv[i].x << " " << csv[i].y << " " << csv[i].x_utm << " " << csv[i].y_utm << endl;
-    }
+    DelaunayTriangles triangles = DelaunayTriangles(csv);
 
     return 0;
 }

@@ -15,7 +15,7 @@ struct Point {
 typedef struct Point Point;
 
 struct Segment {
-    const Point &a, &b;
+    const Point a, b;
 
     friend bool operator==(const Segment &a, const Segment &b) {
         return (a.a == b.a) && (a.b == b.b);
