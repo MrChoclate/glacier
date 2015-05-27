@@ -3,11 +3,11 @@
 
 #include <vector>
 #include <string>
-#include "types.h"
+#include "delaunay.h"
 
 using namespace std;
 
 /* Returns a the points of the csv file */
-vector<Point> readCSV(const string &filename);
+vector<del_point2d_t> readCSV(const string &filename);
 
 #endif

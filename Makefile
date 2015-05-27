@@ -5,7 +5,7 @@
 
 # Définition des variables
 CC = g++
-CFLAGS = -Wall -std=c++11 -Wl,-rpath,.
+CFLAGS = -lm -Wall -std=c++11 -Wl,-rpath,.
 
 .PHONY: doc
 

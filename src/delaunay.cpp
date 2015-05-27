@@ -1,405 +1,880 @@
-#include <vector>
-#include <list>
-#include <map>
-#include <algorithm>
+/*
+**  delaunay.c : compute 2D delaunay triangulation in the plane.
+**  Copyright (C) 2005  Wael El Oraiby <wael.eloraiby@gmail.com>
+**
+**
+**  This program is free software: you can redistribute it and/or modify
+**  it under the terms of the GNU General Public License as published by
+**  the Free Software Foundation, either version 3 of the License, or
+**  (at your option) any later version.
+**
+**  This program is distributed in the hope that it will be useful,
+**  but WITHOUT ANY WARRANTY; without even the implied warranty of
+**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+**  GNU General Public License for more details.
+**
+**  You should have received a copy of the GNU General Public License
+**  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <cstdio>
+#include <cstdlib>
 #include <cmath>
+#include <cstring>
 #include <cassert>
-#include "types.h"
+
 #include "delaunay.h"
 
-//debug
-#include <iostream>
+#define ON_RIGHT	1
+#define ON_SEG		0
+#define ON_LEFT		-1
 
-using namespace std;
+#define OUTSIDE		-1
+#define	ON_CIRCLE	0
+#define INSIDE		1
 
-
-DelaunayTriangles::DelaunayTriangles(vector<Point> v): 
-     rightMost(v.back()), leftMost(v.front()) {
-
-    // Base cases
-    if(v.size() == 3) {
-        Point p1 = v[0];
-        Point p2 = v[1];
-        Point p3 = v[2];
-        adjancyList[p1] = new list<Point>({p2});
-        adjancyList[p2] = new list<Point>({p1});
-        adjancyList[p3] = new list<Point>({});
-        this->insert(p3, p1);
-        this->insert(p3, p2);
-
-        double theta2 = atan2(p2.y - p1.y, p2.x - p1.x);
-        double theta3 = atan2(p3.y - p1.y, p3.x - p1.x);
-        if(theta2 < theta3)
-            hull = {p1, p2, p3};
-        else
-            hull = {p1, p3, p2};
-
-    } else if(v.size() == 2) {
-        Point p1 = v.front();
-        Point p2 = v.back();
-        adjancyList[p1] = new list<Point>({p2});
-        adjancyList[p2] = new list<Point>({p1});
-        hull = {p1, p2};
-    } else {
-        // Divide !
-        size_t const half_size = v.size() / 2;
-        vector<Point> split_lo(v.begin(), v.begin() + half_size);
-        vector<Point> split_hi(v.begin() + half_size, v.end());
-        DelaunayTriangles lo = DelaunayTriangles(split_lo);
-        DelaunayTriangles hi = DelaunayTriangles(split_hi);
-
-        Segment bt = hullLower(lo, hi);
-        Segment ut = hullUpper(lo, hi);
-        hull = mergeHull(bt, ut, lo.hull, hi.hull);
-
-        cout << bt.a.x << ' ' << bt.a.y << ';' << bt.b.x << ' ' << bt.b.y << endl;
-        cout << ut.a.x << ' ' << ut.a.y << ';' << ut.b.x << ' ' << ut.b.y << endl;
+struct	point2d_s;
+struct	face_s;
+struct	halfedge_s;
+struct	delaunay_s;
 
 
-        Point l = bt.a;
-        Point r = bt.b;
-        
-        // Conquer !
-        adjancyList = merge(lo.getAdjancyList(), hi.getAdjancyList());
-        cout << "conquer" << endl;
+#define REAL_ZERO	0.0l
+#define REAL_ONE	1.0l
+#define REAL_TWO	2.0l
+#define REAL_FOUR	4.0l
 
-        for(auto& it: adjancyList) {
-            cout << it.first.x << ", " << it.first.y << ":";
-            for (auto x = it.second->begin(); x != it.second->end(); ++x) {
-                cout << x->x << ", " << x->y << " | ";
-            }
-            cout << endl;
-        }
 
-        while(!(Segment{l, r} == ut)) {
-            cout << "l et r" << endl;
-            cout << l.x << ' ' << l.y << ';' << r.x << ' ' << r.y << endl;
-            bool a = false;
-            bool b = false;
-            insert(l, r);
-            Point r1 = pred(r, l);
-            if(isLeftOf(r1, Segment{l, r})) {
-                Point r2 = pred(r, r1);
-                while(r2 >= hi.getLeftMost() and !qtest(r1, l, r, r2)) {
-                    del(r, r1);
-                    r1 = r2;
-                    r2 = pred(r, r1);
+typedef struct point2d_s	point2d_t;
+typedef struct face_s		face_t;
+typedef struct halfedge_s	halfedge_t;
+typedef struct delaunay_s	delaunay_t;
+typedef struct working_set_s	working_set_t;
 
-                    if(!isLeftOf(r1, Segment{l, r})) {
-                        a = true;
-                        break;
-                    }
-                }
-            } else {
-                a = true;
-            }
-            Point l1 = succ(l, r);
-            if(isRightOf(l1, Segment{r, l})) {
-                Point l2 = succ(l, l1);
-                while(l2 <= lo.getRightMost() and !qtest(l, r, l1, l2)) {
-                    del(l, l1);
-                    l1 = l2;
-                    l2 = succ(l, l1);
+typedef long double lreal;
+typedef lreal mat3_t[3][3];
 
-                    if(!isRightOf(l1, Segment{r, l})) {
-                        b = true;
-                        break;
-                    }
-                }
-            } else {
-                b = true;
-            }
-            if(a) {
-                l = l1;
-            } else {
-                if(b) {
-                    r = r1;
-                } else {
-                    if(qtest(l, r, r1, l1)) {
-                        r = r1;
-                    } else {
-                        l = l1;
-                    }
-                }
-            }
-            assert(!(l == r));
-        }
-        insert(ut.a, ut.b);
-    }
+struct point2d_s {
+	real			x, y;			/* point coordinates */
+	halfedge_t*		he;			/* point halfedge */
+	unsigned int		idx;			/* point index in input buffer */
+};
 
-    cout << endl << endl;
+struct face_s {
+	halfedge_t*		he;			/* a pointing half edge */
+	unsigned int		num_verts;		/* number of vertices on this face */
+};
 
-    // debug
-    for(auto& it: adjancyList) {
-        cout << it.first.x << ", " << it.first.y << ":";
-        for (auto x = it.second->begin(); x != it.second->end(); ++x) {
-            cout << x->x << ", " << x->y << " | ";
-        }
-        cout << endl;
-    }
+struct halfedge_s {
+	point2d_t*		vertex;			/* vertex */
+	halfedge_t*		pair;			/* pair */
+	halfedge_t*		next;			/* next */
+	halfedge_t*		prev;			/* next^-1 */
+	face_t*			face;			/* halfedge face */
+};
 
-    // debug
-    for(auto it = hull.begin(); it != hull.end(); it++) {
-        cout << it->x << ", " << it->y << ";";
-    } cout << endl;
+struct delaunay_s {
+	halfedge_t*		rightmost_he;		/* right most halfedge */
+	halfedge_t*		leftmost_he;		/* left most halfedge */
+	point2d_t*		points;			/* pointer to points */
+	face_t*			faces;			/* faces of delaunay */
+	unsigned int		num_faces;		/* face count */
+	unsigned int		start_point;		/* start point index */
+	unsigned int		end_point;		/* end point index */
+};
 
-}
+struct working_set_s {
+	halfedge_t*		edges;			/* all the edges (allocated in one shot) */
+	face_t*			faces;			/* all the faces (allocated in one shot) */
 
-Point DelaunayTriangles::succ(const Point &v, const Point &w) const {
-    auto list = this->adjancyList.at(v);
+	unsigned int		max_edge;		/* maximum edge count: 2 * 3 * n where n is point count */
+	unsigned int		max_face;		/* maximum face count: 2 * n where n is point count */
 
-  /*  // debug
-    for(auto& it: adjancyList) {
-        cout << it.first.x << ", " << it.first.y << ":";
-        for (auto x = it.second->begin(); x != it.second->end(); ++x) {
-            cout << x->x << ", " << x->y << " | ";
-        }
-        cout << endl;
-    }
+	unsigned int		num_edges;		/* number of allocated edges */
+	unsigned int		num_faces;		/* number of allocated faces */
+
+	halfedge_t*		free_edge;		/* pointer to the first free edge */
+	face_t*			free_face;		/* pointer to the first free face */
+};
+
+/*
+* 3x3 matrix determinant
 */
-    auto it = find(list->begin(), list->end(), w);
-    cout << "succ:" << v.x << "," << v.y << " " << w.x << ',' << w.y << endl;
-    assert(it != list->end());
-    it++;
-    return (it == list->end()) ? list->front() : *(it);
+static lreal det3(mat3_t m)
+{
+	lreal	res	= m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+			- m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+			+ m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+
+	return res;
 }
 
-Point DelaunayTriangles::pred(const Point &v, const Point &w) const {
-    auto list = this->adjancyList.at(v);
-
-/*    // debug
-    for(auto& it: adjancyList) {
-        cout << it.first.x << ", " << it.first.y << ":";
-        for (auto x = it.second->begin(); x != it.second->end(); ++x) {
-            cout << x->x << ", " << x->y << " | ";
-        }
-        cout << endl;
-    }
+/*
+* allocate a halfedge
 */
-    auto it = find(list->begin(), list->end(), w);
-    cout << "pred:" << v.x << ',' << v.y << ' ' << w.x << ',' << w.y << endl;
-    assert(it != list->end());
-    it = (it == list->begin()) ? list->end() : it;
-    it--;
-    return *it;
+static halfedge_t* halfedge_alloc()
+{
+	halfedge_t*		d;
+
+	d	= (halfedge_t*)malloc(sizeof(halfedge_t));
+	assert( d != NULL );
+	memset(d, 0, sizeof(halfedge_t));
+
+	return d;
 }
 
-Point DelaunayTriangles::getRightMost() const {
-    return rightMost;
+/*
+* free a halfedge
+*/
+static void halfedge_free( halfedge_t* d )
+{
+	assert( d != NULL );
+	memset(d, 0, sizeof(halfedge_t));
+	free(d);
 }
 
-Point DelaunayTriangles::getLeftMost() const {
-    return leftMost;
+/*
+* free all delaunay halfedges
+*/
+void del_free_halfedges( delaunay_t *del )
+{
+	unsigned int		i;
+	halfedge_t		*d, *sig;
+
+	/* if there is nothing to do */
+	if( del->points == NULL )
+		return;
+
+	for( i = 0; i <= (del->end_point - del->start_point); i++ )
+	{
+		/* free all the halfedges around the point */
+		d	= del->points[i].he;
+		if( d != NULL )
+		{
+			do {
+				sig	= d->next;
+				halfedge_free( d );
+				d	= sig;
+			} while( d != del->points[i].he );
+			del->points[i].he	= NULL;
+		}
+	}
 }
 
-double get_theta(const double y, const double x) {
-    double theta = atan2(y, x);
-    if(theta < 0)
-        theta += 2 * M_PI;
-    return theta; 
+/*
+* compare 2 points when sorting
+*/
+static int cmp_points( const void *_pt0, const void *_pt1 )
+{
+	point2d_t		*pt0, *pt1;
+
+	pt0	= (point2d_t*)(_pt0);
+	pt1	= (point2d_t*)(_pt1);
+
+	if( pt0->x < pt1->x )
+		return -1;
+	else if( pt0->x > pt1->x )
+		return 1;
+	else if( pt0->y < pt1->y )
+		return -1;
+	else if( pt0->y > pt1->y )
+		return 1;
+	assert(0 && "2 or more points share the same exact coordinate");
+	return 0; /* Should not be given! */
 }
 
-void DelaunayTriangles::insert(const Point &a, const Point &b) {
-    double x = b.x - a.x;
-    double y = b.y - a.y;
-    double theta = get_theta(y, x);
+/*
+* classify a point relative to a segment
+*/
+static int classify_point_seg( point2d_t *s, point2d_t *e, point2d_t *pt )
+{
+	lreal		se_x, se_y, spt_x, spt_y;
+	lreal		res;
 
-    // Insert b into a
-    auto list = adjancyList.at(a);
-    std::list<Point>::iterator i;
-    for (i = list->begin(); i != list->end(); ++i) {
-        double theta2 = get_theta(i->y - a.y, i->x - a.x);
-        if(theta < theta2) {
-            list->insert(i, b);
-            break;
-        }
-    }
-    if(i == list->end())
-        list->insert(i, b);
+	se_x	= e->x - s->x;
+	se_y	= e->y - s->y;
 
+	spt_x	= pt->x - s->x;
+	spt_y	= pt->y - s->y;
 
-    // Insert a into b
-    theta = get_theta(-y, -x);
-    list = adjancyList.at(b);
-    for (i = list->begin(); i != list->end(); ++i) {
-        double theta2 = get_theta(i->y - b.y, i->x - b.x);
-        if(theta < theta2) {
-            list->insert(i, a);
-            break;
-        }
-    }
-    if(i == list->end())
-        list->insert(i, a);
+	res	= (( se_x * spt_y ) - ( se_y * spt_x ));
+	if( res < REAL_ZERO )
+		return ON_RIGHT;
+	else if( res > REAL_ZERO )
+		return ON_LEFT;
+
+	return ON_SEG;
 }
 
-void DelaunayTriangles::del(const Point &a, const Point &b) {
-    adjancyList[a]->remove(b);
-    adjancyList[b]->remove(a);
+/*
+* classify a point relative to a halfedge, -1 is left, 0 is on, 1 is right
+*/
+static int del_classify_point( halfedge_t *d, point2d_t *pt )
+{
+	point2d_t		*s, *e;
+
+	s		= d->vertex;
+	e		= d->pair->vertex;
+
+	return classify_point_seg(s, e, pt);
 }
 
-map<Point, list<Point>* > DelaunayTriangles::getAdjancyList() const {
-    return adjancyList;
+/*
+* test if a point is inside a circle given by 3 points, 1 if inside, 0 if outside
+*/
+static int in_circle( point2d_t *pt0, point2d_t *pt1, point2d_t *pt2, point2d_t *p )
+{
+	// reduce the computational complexity by substracting the last row of the matrix
+	// ref: https://www.cs.cmu.edu/~quake/robust.html
+	lreal	p0p_x, p0p_y, p1p_x, p1p_y, p2p_x, p2p_y, p0p, p1p, p2p, res;
+	mat3_t	m;
+
+	p0p_x	= pt0->x - p->x;
+	p0p_y	= pt0->y - p->y;
+
+	p1p_x	= pt1->x - p->x;
+	p1p_y	= pt1->y - p->y;
+
+	p2p_x	= pt2->x - p->x;
+	p2p_y	= pt2->y - p->y;
+
+	p0p	= p0p_x * p0p_x + p0p_y * p0p_y;
+	p1p	= p1p_x * p1p_x + p1p_y * p1p_y;
+	p2p	= p2p_x * p2p_x + p2p_y * p2p_y;
+
+	m[0][0]	= p0p_x;
+	m[0][1]	= p0p_y;
+	m[0][2] = p0p;
+
+	m[1][0]	= p1p_x;
+	m[1][1]	= p1p_y;
+	m[1][2] = p1p;
+
+	m[2][0]	= p2p_x;
+	m[2][1]	= p2p_y;
+	m[2][2] = p2p;
+
+	res	= -det3(m);
+
+	if( res < REAL_ZERO )
+		return INSIDE;
+	else if( res > REAL_ZERO )
+		return OUTSIDE;
+
+	return ON_CIRCLE;
 }
 
-list<Point>::const_iterator DelaunayTriangles::ccw_hull(const list<Point>::const_iterator &it) const {
-    auto i = it;
-    i++;
-    return (i == hull.end()) ? hull.begin() : i;
+/*
+* initialize delaunay segment
+*/
+static int del_init_seg( delaunay_t *del, int start )
+{
+	halfedge_t		*d0, *d1;
+	point2d_t		*pt0, *pt1;
+
+	/* init delaunay */
+	del->start_point	= start;
+	del->end_point		= start + 1;
+
+	/* setup pt0 and pt1 */
+	pt0			= &(del->points[start]);
+	pt1			= &(del->points[start + 1]);
+
+	/* allocate the halfedges and setup them */
+	d0	= halfedge_alloc();
+	d1	= halfedge_alloc();
+
+	d0->vertex	= pt0;
+	d1->vertex	= pt1;
+
+	d0->next	= d0->prev	= d0;
+	d1->next	= d1->prev	= d1;
+
+	d0->pair	= d1;
+	d1->pair	= d0;
+
+	pt0->he	= d0;
+	pt1->he	= d1;
+
+	del->rightmost_he	= d1;
+	del->leftmost_he	= d0;
+
+
+	return 0;
 }
 
-list<Point>::const_iterator DelaunayTriangles::cw_hull(const list<Point>::const_iterator &it) const {
-    auto i = it;
-    if(i == hull.begin())
-        i = hull.end();
-    i--;
-    return i;
+/*
+* initialize delaunay triangle
+*/
+static int del_init_tri( delaunay_t *del, int start )
+{
+	halfedge_t		*d0, *d1, *d2, *d3, *d4, *d5;
+	point2d_t		*pt0, *pt1, *pt2;
+
+	/* initiate delaunay */
+	del->start_point	= start;
+	del->end_point		= start + 2;
+
+	/* setup the points */
+	pt0					= &(del->points[start]);
+	pt1					= &(del->points[start + 1]);
+	pt2					= &(del->points[start + 2]);
+
+	/* allocate the 6 halfedges */
+	d0	= halfedge_alloc();
+	d1	= halfedge_alloc();
+	d2	= halfedge_alloc();
+	d3	= halfedge_alloc();
+	d4	= halfedge_alloc();
+	d5	= halfedge_alloc();
+
+	if( classify_point_seg(pt0, pt2, pt1) == ON_LEFT )	/* first case */
+	{
+		/* set halfedges points */
+		d0->vertex	= pt0;
+		d1->vertex	= pt2;
+		d2->vertex	= pt1;
+
+		d3->vertex	= pt2;
+		d4->vertex	= pt1;
+		d5->vertex	= pt0;
+
+		/* set points halfedges */
+		pt0->he	= d0;
+		pt1->he	= d2;
+		pt2->he	= d1;
+
+		/* next and next -1 setup */
+		d0->next	= d5;
+		d0->prev	= d5;
+
+		d1->next	= d3;
+		d1->prev	= d3;
+
+		d2->next	= d4;
+		d2->prev	= d4;
+
+		d3->next	= d1;
+		d3->prev	= d1;
+
+		d4->next	= d2;
+		d4->prev	= d2;
+
+		d5->next	= d0;
+		d5->prev	= d0;
+
+		/* set halfedges pair */
+		d0->pair	= d3;
+		d3->pair	= d0;
+
+		d1->pair	= d4;
+		d4->pair	= d1;
+
+		d2->pair	= d5;
+		d5->pair	= d2;
+
+		del->rightmost_he	= d1;
+		del->leftmost_he		= d0;
+
+	} else /* 2nd case */
+	{
+		/* set halfedges points */
+		d0->vertex	= pt0;
+		d1->vertex	= pt1;
+		d2->vertex	= pt2;
+
+		d3->vertex	= pt1;
+		d4->vertex	= pt2;
+		d5->vertex	= pt0;
+
+		/* set points halfedges */
+		pt0->he	= d0;
+		pt1->he	= d1;
+		pt2->he	= d2;
+
+		/* next and next -1 setup */
+		d0->next	= d5;
+		d0->prev	= d5;
+
+		d1->next	= d3;
+		d1->prev	= d3;
+
+		d2->next	= d4;
+		d2->prev	= d4;
+
+		d3->next	= d1;
+		d3->prev	= d1;
+
+		d4->next	= d2;
+		d4->prev	= d2;
+
+		d5->next	= d0;
+		d5->prev	= d0;
+
+		/* set halfedges pair */
+		d0->pair	= d3;
+		d3->pair	= d0;
+
+		d1->pair	= d4;
+		d4->pair	= d1;
+
+		d2->pair	= d5;
+		d5->pair	= d2;
+
+		del->rightmost_he	= d2;
+		del->leftmost_he		= d0;
+	}
+
+	return 0;
 }
 
-list<Point>::const_iterator DelaunayTriangles::find_hull(const Point &p) const {
-    return find(hull.begin(), hull.end(), p);
+/*
+* remove an edge given a halfedge
+*/
+static void del_remove_edge( halfedge_t *d )
+{
+	halfedge_t	*next, *prev, *pair, *orig_pair;
+
+	orig_pair	= d->pair;
+
+	next	= d->next;
+	prev	= d->prev;
+	pair	= d->pair;
+
+	assert(next != NULL);
+	assert(prev != NULL);
+
+	next->prev	= prev;
+	prev->next	= next;
+
+
+	/* check to see if we have already removed pair */
+	if( pair )
+		pair->pair	= NULL;
+
+	/* check to see if the vertex points to this halfedge */
+	if( d->vertex->he == d )
+		d->vertex->he	= next;
+
+	d->vertex	= NULL;
+	d->next		= NULL;
+	d->prev		= NULL;
+	d->pair		= NULL;
+
+	next	= orig_pair->next;
+	prev	= orig_pair->prev;
+	pair	= orig_pair->pair;
+
+	assert(next != NULL);
+	assert(prev != NULL);
+
+	next->prev	= prev;
+	prev->next	= next;
+
+
+	/* check to see if we have already removed pair */
+	if( pair )
+		pair->pair	= NULL;
+
+	/* check to see if the vertex points to this halfedge */
+	if( orig_pair->vertex->he == orig_pair )
+		orig_pair->vertex->he	= next;
+
+	orig_pair->vertex	= NULL;
+	orig_pair->next		= NULL;
+	orig_pair->prev		= NULL;
+	orig_pair->pair		= NULL;
+
+
+	/* finally free the halfedges */
+	halfedge_free(d);
+	halfedge_free(orig_pair);
 }
 
-double det(int n, double mat[10][10]) {
-    double d = 0;
-    int c, subi, i, j, subj;
-    double submat[10][10];  
+/*
+* pass through all the halfedges on the left side and validate them
+*/
+static halfedge_t* del_valid_left( halfedge_t* b )
+{
+	point2d_t		*g, *d, *u, *v;
+	halfedge_t		*c, *du, *dg;
 
-    if (n == 2) {
-        return( (mat[0][0] * mat[1][1]) - (mat[1][0] * mat[0][1]));
-    } else {  
-        for(c = 0; c < n; c++) {  
-            subi = 0;  
-            for(i = 1; i < n; i++) {  
-                subj = 0;
-                for(j = 0; j < n; j++) {    
-                    if (j == c) {
-                        continue;
-                    }
-                    submat[subi][subj] = mat[i][j];
-                    subj++;
-                }
-                subi++;
-            }
-        d = d + (pow(-1 ,c) * mat[0][c] * det(n - 1 ,submat));
-        }
-    }
-    return d;
+	g	= b->vertex;				/* base halfedge point */
+	dg	= b;
+
+	d	= b->pair->vertex;			/* pair(halfedge) point */
+	b	= b->next;
+
+	u	= b->pair->vertex;			/* next(pair(halfedge)) point */
+	du	= b->pair;
+
+	v	= b->next->pair->vertex;	/* pair(next(next(halfedge)) point */
+
+	if( classify_point_seg(g, d, u) == ON_LEFT )
+	{
+		/* 3 points aren't colinear */
+		/* as long as the 4 points belong to the same circle, do the cleaning */
+		assert( v != u && "1: floating point precision error");
+		while( v != d && v != g && in_circle(g, d, u, v) == INSIDE )
+		{
+			c	= b->next;
+			du	= b->next->pair;
+			del_remove_edge(b);
+			b	= c;
+			u	= du->vertex;
+			v	= b->next->pair->vertex;
+		}
+
+		assert( v != u && "2: floating point precision error");
+		if( v != d && v != g && in_circle(g, d, u, v) == ON_CIRCLE )
+		{
+			du	= du->prev;
+			del_remove_edge(b);
+		}
+	} else	/* treat the case where the 3 points are colinear */
+		du		= dg;
+
+	assert(du->pair);
+	return du;
 }
 
-bool qtest(const Point &h, const Point &i, const Point &j, const Point &k) {
-    double mat[10][10] = {{h.x, h.y, h.x*h.x + h.y*h.y, 1}, 
-                          {i.x, i.y, i.x*i.x + i.y*i.y, 1},
-                          {j.x, j.y, j.x*j.x + j.y*j.y, 1},
-                          {k.x, k.y, k.x*k.x + k.y*k.y, 1}};
-    return det(4, mat) > 0;
+/*
+* pass through all the halfedges on the right side and validate them
+*/
+static halfedge_t* del_valid_right( halfedge_t *b )
+{
+	point2d_t		*rv, *lv, *u, *v;
+	halfedge_t		*c, *dd, *du;
+
+	b	= b->pair;
+	rv	= b->vertex;
+	dd	= b;
+	lv	= b->pair->vertex;
+	b	= b->prev;
+	u	= b->pair->vertex;
+	du	= b->pair;
+
+	v	= b->prev->pair->vertex;
+
+	if( classify_point_seg(lv, rv, u) == ON_LEFT )
+	{
+		assert( v != u && "1: floating point precision error");
+		while( v != lv && v != rv && in_circle(lv, rv, u, v) == INSIDE )
+		{
+			c	= b->prev;
+			du	= c->pair;
+			del_remove_edge(b);
+			b	= c;
+			u	= du->vertex;
+			v	= b->prev->pair->vertex;
+		}
+
+		assert( v != u && "1: floating point precision error");
+		if( v != lv && v != rv && in_circle(lv, rv, u, v) == ON_CIRCLE )
+		{
+			du	= du->next;
+			del_remove_edge(b);
+		}
+	} else
+		du	= dd;
+
+	assert(du->pair);
+	return du;
 }
 
-bool isRightOf(const Point &z, const Segment &seg) {
-    double x1 = z.x - seg.a.x;
-    double x2 = seg.b.x - seg.a.x;
 
-    double y1 = z.y - seg.a.y;
-    double y2 = seg.b.y - seg.a.y;
+/*
+* validate a link
+*/
+static halfedge_t* del_valid_link( halfedge_t *b )
+{
+	point2d_t	*g, *g_p, *d, *d_p;
+	halfedge_t	*gd, *dd, *new_gd, *new_dd;
+	int		a;
 
-    double determinant = x1 * y2 - x2 * y1;
+	g	= b->vertex;
+	gd	= del_valid_left(b);
+	g_p	= gd->vertex;
 
-    return determinant > 0;
+	assert(b->pair);
+	d	= b->pair->vertex;
+	dd	= del_valid_right(b);
+	d_p	= dd->vertex;
+	assert(b->pair);
+
+	if( g != g_p && d != d_p ) {
+		a	= in_circle(g, d, g_p, d_p);
+
+		if( a != ON_CIRCLE ) {
+			if( a == INSIDE ) {
+				g_p	= g;
+				gd	= b;
+			} else {
+				d_p = d;
+				dd	= b->pair;
+			}
+		}
+	}
+
+	/* create the 2 halfedges */
+	new_gd	= halfedge_alloc();
+	new_dd	= halfedge_alloc();
+
+	/* setup new_gd and new_dd */
+
+	new_gd->vertex	= gd->vertex;
+	new_gd->pair	= new_dd;
+	new_gd->prev	= gd;
+	new_gd->next	= gd->next;
+	gd->next->prev	= new_gd;
+	gd->next		= new_gd;
+
+	new_dd->vertex	= dd->vertex;
+	new_dd->pair	= new_gd;
+	new_dd->prev	= dd->prev;
+	dd->prev->next	= new_dd;
+	new_dd->next	= dd;
+	dd->prev		= new_dd;
+
+	return new_gd;
 }
 
-bool isLeftOf(const Point &z, const Segment &seg) {
-    return isRightOf(z, Segment{seg.b, seg.a});
+/*
+* find the lower tangent between the two delaunay, going from left to right (returns the left half edge)
+*/
+static halfedge_t* del_get_lower_tangent( delaunay_t *left, delaunay_t *right )
+{
+	point2d_t	*pl, *pr;
+	halfedge_t	*right_d, *left_d, *new_ld, *new_rd;
+	int		sl, sr;
+
+	left_d	= left->rightmost_he;
+	right_d	= right->leftmost_he;
+
+	do {
+		pl		= left_d->prev->pair->vertex;
+		pr		= right_d->pair->vertex;
+
+		if( (sl = classify_point_seg(left_d->vertex, right_d->vertex, pl)) == ON_RIGHT ) {
+			left_d	= left_d->prev->pair;
+		}
+
+		if( (sr = classify_point_seg(left_d->vertex, right_d->vertex, pr)) == ON_RIGHT ) {
+			right_d	= right_d->pair->next;
+		}
+
+	} while( sl == ON_RIGHT || sr == ON_RIGHT );
+
+	/* create the 2 halfedges */
+	new_ld	= halfedge_alloc();
+	new_rd	= halfedge_alloc();
+
+	/* setup new_gd and new_dd */
+	new_ld->vertex	= left_d->vertex;
+	new_ld->pair	= new_rd;
+	new_ld->prev	= left_d->prev;
+	left_d->prev->next	= new_ld;
+	new_ld->next	= left_d;
+	left_d->prev	= new_ld;
+
+	new_rd->vertex	= right_d->vertex;
+	new_rd->pair	= new_ld;
+	new_rd->prev	= right_d->prev;
+	right_d->prev->next	= new_rd;
+	new_rd->next	= right_d;
+	right_d->prev	= new_rd;
+
+	return new_ld;
 }
 
-Point leftEnd(const Segment &seg) {
-    return (seg.a.x < seg.b.x) ? seg.a : seg.b;
+/*
+* link the 2 delaunay together
+*/
+static void del_link( delaunay_t *result, delaunay_t *left, delaunay_t *right )
+{
+	point2d_t		*u, *v, *ml, *mr;
+	halfedge_t		*base;
+
+	assert( left->points == right->points );
+
+	/* save the most right point and the most left point */
+	ml		= left->leftmost_he->vertex;
+	mr		= right->rightmost_he->vertex;
+
+	base		= del_get_lower_tangent(left, right);
+
+	u		= base->next->pair->vertex;
+	v		= base->pair->prev->pair->vertex;
+
+	while( del_classify_point(base, u) == ON_LEFT ||
+	       del_classify_point(base, v) == ON_LEFT )
+	{
+		base	= del_valid_link(base);
+		u	= base->next->pair->vertex;
+		v	= base->pair->prev->pair->vertex;
+	}
+
+	right->rightmost_he	= mr->he;
+	left->leftmost_he	= ml->he;
+
+	/* TODO: this part is not needed, and can be optimized */
+	while( del_classify_point( right->rightmost_he, right->rightmost_he->prev->pair->vertex ) == ON_RIGHT )
+	       right->rightmost_he	= right->rightmost_he->prev;
+
+	while( del_classify_point( left->leftmost_he, left->leftmost_he->prev->pair->vertex ) == ON_RIGHT )
+	       left->leftmost_he	= left->leftmost_he->prev;
+
+	result->leftmost_he		= left->leftmost_he;
+	result->rightmost_he		= right->rightmost_he;
+	result->points			= left->points;
+	result->start_point		= left->start_point;
+	result->end_point		= right->end_point;
 }
 
-Point rightEnd(const Segment &seg) {
-    return (seg.a.x < seg.b.x) ? seg.b : seg.a;
+/*
+* divide and conquer delaunay
+*/
+void del_divide_and_conquer( delaunay_t *del, int start, int end )
+{
+	delaunay_t	left, right;
+	int			i, n;
+
+	n		= (end - start + 1);
+
+	if( n > 3 ) {
+		i		= (n / 2) + (n & 1);
+		left.points		= del->points;
+		right.points	= del->points;
+		del_divide_and_conquer( &left, start, start + i - 1 );
+		del_divide_and_conquer( &right, start + i, end );
+		del_link( del, &left, &right );
+	} else {
+		if( n == 3 ) {
+			del_init_tri( del, start );
+		} else {
+			if( n == 2 ) {
+				del_init_seg( del, start );
+			}
+		}
+	}
 }
 
-Segment hullLower(const DelaunayTriangles &vl, const DelaunayTriangles &vr) {
-    Point x = vl.getRightMost();
-    Point y = vr.getLeftMost();
+static void build_halfedge_face( delaunay_t *del, halfedge_t *d )
+{
+	halfedge_t	*curr;
 
-    auto ileft = vl.find_hull(x);
-    auto iright = vr.find_hull(y);
+	/* test if the halfedge has already a pointing face */
+	if( d->face != NULL )
+		return;
 
-    ileft = vl.cw_hull(ileft);
-    iright = vr.ccw_hull(iright);
+	del->faces = (face_t*)realloc(del->faces, (del->num_faces + 1) * sizeof(face_t));
 
-    while(1) {
-        if(isRightOf(*ileft, Segment{x, y})) {
-            x = *ileft;
-            ileft = vl.cw_hull(ileft);
-        } else if(isRightOf(*iright, Segment{x, y})) {
-            y = *iright;
-            iright = vr.ccw_hull(iright);
-        } else {
-            return Segment{x, y};
-        }
-    }
+	face_t	*f	= &(del->faces[del->num_faces]);
+	curr	= d;
+	f->he	= d;
+	f->num_verts	= 0;
+	do {
+		curr->face	= f;
+		(f->num_verts)++;
+		curr	= curr->pair->prev;
+	} while( curr != d );
+
+	(del->num_faces)++;
 }
 
-Segment hullUpper(const DelaunayTriangles &vl, const DelaunayTriangles &vr) {
-    Point x = vl.getRightMost();
-    Point y = vr.getLeftMost();
+/*
+* build the faces for all the halfedge
+*/
+void del_build_faces( delaunay_t *del )
+{
+	unsigned int	i;
+	halfedge_t	*curr;
 
-    auto ileft = vl.find_hull(x);
-    auto iright = vr.find_hull(y);
+	del->num_faces	= 0;
+	del->faces		= NULL;
 
-    ileft = vl.ccw_hull(ileft);
-    iright = vr.cw_hull(iright);
+	/* build external face first */
+	build_halfedge_face(del, del->rightmost_he->pair);
 
-    while(1) {
-        if(isLeftOf(*ileft, Segment{x, y})) {
-            x = *ileft;
-            ileft = vl.ccw_hull(ileft);
-        } else if(isLeftOf(*iright, Segment{x, y})) {
-            y = *iright;
-            iright = vr.cw_hull(iright);
-        } else {
-            return Segment{x, y};
-        }
-    }
+	for( i = del->start_point; i <= del->end_point; i++ )
+	{
+		curr	= del->points[i].he;
+
+		do {
+			build_halfedge_face( del, curr );
+			curr	= curr->next;
+		} while( curr != del->points[i].he );
+	}
 }
 
-map<Point, list<Point>* > merge(const map<Point, list<Point>* > &a, const map<Point, list<Point>* > &b) {
-    map<Point, list<Point>* > c = a;
-    for(auto& i: b) {
-        if(a.count(i.first) == 1) {
-            // Merge the two lists
-            list<Point>* l1 = a.at(i.first);
-            list<Point>* l2 = i.second;
-            l1->merge(*l2);
-            c[i.first] = l1;
-        } else {
-            c[i.first] = i.second;
-        }
-    }
-    return  c;
+/*
+*/
+delaunay2d_t* delaunay2d_from(del_point2d_t *points, unsigned int num_points) {
+	delaunay2d_t*	res	= NULL;
+	delaunay_t	del;
+	unsigned int	i, j, fbuff_size = 0;
+	unsigned int*	faces	= NULL;
+
+	/* allocate the points */
+	del.points	= (point2d_t*)malloc(num_points * sizeof(point2d_t));
+	assert( del.points != NULL );
+	memset(del.points, 0, num_points * sizeof(point2d_t));
+
+	/* copy the points */
+	for( i = 0; i < num_points; i++ )
+	{
+		del.points[i].idx	= i;
+		del.points[i].x	= points[i].x;
+		del.points[i].y	= points[i].y;
+	}
+
+	qsort(del.points, num_points, sizeof(point2d_t), cmp_points);
+
+	if( num_points >= 3 ) {
+		del_divide_and_conquer( &del, 0, num_points - 1 );
+
+		del_build_faces( &del );
+
+		fbuff_size	= 0;
+		for( i = 0; i < del.num_faces; i++ )
+			fbuff_size	+= del.faces[i].num_verts + 1;
+
+		faces = (unsigned int*)malloc(sizeof(unsigned int) * fbuff_size);
+
+		j = 0;
+		for( i = 0; i < del.num_faces; i++ )
+		{
+			halfedge_t	*curr;
+
+			faces[j]	= del.faces[i].num_verts;
+			j++;
+
+			curr	= del.faces[i].he;
+			do {
+				faces[j]	= curr->vertex->idx;
+				j++;
+				curr	= curr->pair->prev;
+			} while( curr != del.faces[i].he );
+		}
+
+		del_free_halfedges( &del );
+
+		free(del.faces);
+		free(del.points);
+	}
+
+	res		= (delaunay2d_t*)malloc(sizeof(delaunay2d_t));
+	res->num_points	= num_points;
+	res->points	= (del_point2d_t*)malloc(sizeof(del_point2d_t) * num_points);
+	memcpy(res->points, points, sizeof(del_point2d_t) * num_points);
+	res->num_faces	= del.num_faces;
+	res->faces	= faces;
+
+	return res;
 }
 
-list<Point> mergeHull(const Segment &lt, const Segment &up, const list<Point> &leftHull, const list<Point> &rightHull) {
-    list<Point> new_hull = {};
-
-    auto it = find(rightHull.begin(), rightHull.end(), lt.b);
-    while(!(*it == up.b)) {
-        new_hull.push_back(*it);
-        it++;
-        if(it == rightHull.end())
-            it = rightHull.begin();
-    }
-    new_hull.push_back(up.b);
-
-    it = find(leftHull.begin(), leftHull.end(), up.a);
-    while(!(*it == lt.a)) {
-        new_hull.push_back(*it);
-        it++;
-        if(it == leftHull.end())
-            it = leftHull.begin();
-    }
-    new_hull.push_back(lt.a);
-
-    return new_hull;
+void delaunay2d_release(delaunay2d_t *del) {
+	free(del->faces);
+	free(del->points);
+	free(del);
 }
