@@ -20,7 +20,7 @@ vector<del_point2d_t> readCSV(const string &filename) {
         getline(file, line); // Ignore the header
         while(getline(file, line)) {
             sscanf(line.c_str(), "GCP #%d\t%lf\t%lf\t%lf\t%lf", &id, &x, &y, &x_utm, &y_utm);
-            del_point2d_t p = {x, y, x_utm, y_utm};
+            del_point2d_t p = {x, -y, x_utm, y_utm};
             res.push_back(p);
         }
         file.close();
