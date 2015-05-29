@@ -55,12 +55,12 @@ Plan make_plan(const Triangle &t) {
     b << t.a.x_utm, t.b.x_utm, t.c.x_utm;
     b_ << t.a.y_utm, t.b.y_utm, t.c.y_utm;
 
-    Vector3f x = A.colPivHouseholderQr().solve(b);
+    Vector3f x = A.fullPivLu().solve(b);
     p.a = x(0);
     p.b = x(1);
     p.c = x(2);
 
-    Vector3f x_ = A.colPivHouseholderQr().solve(b_);
+    Vector3f x_ = A.fullPivLu().solve(b_);
     p.a_ = x_(0);
     p.b_ = x_(1);
     p.c_ = x_(2);
@@ -110,19 +110,45 @@ void update(del_point2d_t &p, const Plan &plan) {
     p.y_utm = plan.a_ * p.x + plan.b_ * p.y + plan.c_;
 }
 
-vector<del_point2d_t> build_points(unsigned width , unsigned height) {
-    vector<del_point2d_t> points;
+vector<del_point2d_t> build_points(const Triangle &t) {
+    Plan plan = make_plan(t);
+    int x_min = t.a.x; 
+    x_min = (x_min > t.b.x) ? t.b.x : x_min;
+    x_min = (x_min > t.c.x) ? t.c.x : x_min;
 
-    for (unsigned int i = 0; i < width; i++) {
-        for(unsigned int j = 0; j < height; j++) {
-            del_point2d_t p;
-            p.x = i;
-            p.y = j;
-            points.push_back(p);
+    int y_min = t.a.y; 
+    y_min = (y_min > t.b.y) ? t.b.y : y_min;
+    y_min = (y_min > t.c.y) ? t.c.y : y_min;
+
+    int x_max = t.a.x; 
+    x_max = (x_max < t.b.x) ? t.b.x : x_max;
+    x_max = (x_max < t.c.x) ? t.c.x : x_max;
+
+    int y_max = t.a.y; 
+    y_max = (y_max < t.b.y) ? t.b.y : y_max;
+    y_max = (y_max < t.c.y) ? t.c.y : y_max;
+
+    vector<del_point2d_t> res;
+    for(int i = x_min; i <= x_max; i++) {
+        for(int j = y_min; j <= y_max; j++) {
+            del_point2d_t p = del_point2d_t{(double) i, (double) j};
+            if(in_triangle(p, t)) {
+                update(p, plan);
+                res.push_back(p);
+            }
         }
     }
+    return res;
+}
 
-    return points;
+vector<del_point2d_t> build_points(vector<Triangle> triangles) {
+    vector<del_point2d_t> projection;
+    for (auto i = triangles.begin(); i != triangles.end(); ++i) {
+        auto res = build_points(*i);
+        projection.reserve(projection.size() + res.size());
+        projection.insert(projection.end(), res.begin(), res.end());
+    }
+    return projection;
 }
 
 void get_min_max(float &x_min, float &x_max, float &y_min, float &y_max, const vector<del_point2d_t> &points) {
@@ -148,7 +174,8 @@ bool is_blank(const ImagePNG &img, const unsigned int x, const unsigned int y) {
     return img.red(y, x) == 255 && img.green(y, x) == 255 && img.blue(y, x) == 255;
 }
 
-void smooth(ImagePNG &img) {
+ImagePNG smooth(const ImagePNG &img) {
+    ImagePNG res = img;
     for(unsigned int x = 1; x < img.getWidth() - 1; x++) {
         for(unsigned int y = 1; y < img.getHeight() - 1; y++) {
             if(is_blank(img, x, y)) {
@@ -165,13 +192,14 @@ void smooth(ImagePNG &img) {
                     }
                 }
                 if(count != 0) {
-                    img.red(y, x) = r / count;
-                    img.green(y, x) = g / count;
-                    img.blue(y, x) = b / count;
+                    res.red(y, x) = r / count;
+                    res.green(y, x) = g / count;
+                    res.blue(y, x) = b / count;
                 }
             }
         }
     }
+    return res;
 }
 
 void build_aerial_(const string &csv_filename, const string &in, const string &out) {
@@ -180,22 +208,8 @@ void build_aerial_(const string &csv_filename, const string &in, const string &o
 
     file_in.load(in);
 
-    cout << "Info: Triangulation done" << endl;
-
     auto triangles = make_triangles(csv_filename);
-    auto plans = make_plans(triangles);
-    auto points = build_points(file_in.getWidth(), file_in.getHeight());
-
-    vector<del_point2d_t> projection;
-    for (auto i = points.begin(); i != points.end(); ++i) {
-        int indice_triangle = get_triangle(*i, triangles);
-        if(indice_triangle != -1) {
-            update(*i, plans[indice_triangle]);
-            projection.push_back(*i);
-        }
-    }
-
-    cout << "Info: Projection done" << endl;
+    auto projection = build_points(triangles);
 
     float x_max, x_min, y_max, y_min;
     get_min_max(x_min, x_max, y_min, y_max, projection);
@@ -208,10 +222,9 @@ void build_aerial_(const string &csv_filename, const string &in, const string &o
         file_out.alpha(ceil(i->y_utm - y_min), ceil(i->x_utm - x_min)) = file_in.alpha(i->y, i->x);
     }
 
-    cout << "Info: Smooth starting..." << endl;
-    smooth(file_out);
+    file_out = smooth(file_out);
     file_out.save(out);
 
-    cout << "Info: Image done" << endl;
-
+    cout << "Creating: " << out << "; x goes from " << (int) floor(x_min) << " to " << (int) ceil(x_min + file_out.getWidth());
+    cout << " and y goes from " << (int) floor(y_min) << " to " << (int) ceil(y_min + file_out.getHeight()) << endl;
 }
